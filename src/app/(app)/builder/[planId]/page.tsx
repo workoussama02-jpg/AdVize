@@ -1,24 +1,69 @@
 /**
- * Plan detail page — view and edit a generated campaign plan.
+ * Plan detail page — loads a saved campaign plan from the DB and renders it.
  * PRD Section 6.5.4 / 6.5.5.
  */
 'use client';
 
-import { use } from 'react';
+import { use, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { PlanView } from '@/components/builder/PlanView';
 import { SkeletonPlanTree } from '@/components/ui/Skeleton';
+import { Button } from '@/components/ui/Button';
+import { db } from '@/lib/insforge';
 
 interface PlanPageProps {
   params: Promise<{ planId: string }>;
 }
 
+interface CampaignPlanRecord {
+  id: string;
+  title: string;
+  status: 'draft' | 'approved' | 'exported' | 'archived';
+  brief: {
+    product_description: string;
+    objective: string;
+    target_audience: string;
+    daily_budget: number;
+    special_requirements?: string;
+  };
+  plan_data: {
+    title: string;
+    campaigns: Parameters<typeof PlanView>[0]['plan']['campaigns'];
+  };
+  created_at: string;
+}
+
 export default function PlanDetailPage({ params }: PlanPageProps) {
   const { planId } = use(params);
+  const router = useRouter();
+  const [plan, setPlan] = useState<CampaignPlanRecord | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  /* Placeholder — in production, fetch plan from InsForge DB */
-  const plan = null;
+  useEffect(() => {
+    const loadPlan = async () => {
+      try {
+        const query = await db.from<CampaignPlanRecord>('campaign_plans');
+        const result = await query.select('*').eq('id', planId).limit(1).execute();
 
-  if (!plan) {
+        if (result.error) {
+          setError(result.error.message);
+        } else if (!result.data || result.data.length === 0) {
+          setError('Plan not found.');
+        } else {
+          setPlan(result.data[0]);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load plan');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadPlan();
+  }, [planId]);
+
+  if (isLoading) {
     return (
       <div>
         <div className="page-header">
@@ -29,20 +74,45 @@ export default function PlanDetailPage({ params }: PlanPageProps) {
     );
   }
 
+  if (error || !plan) {
+    return (
+      <div>
+        <div className="page-header">
+          <h1 className="page-title">Campaign Plan</h1>
+        </div>
+        <div className="card">
+          <p className="auth-error" role="alert">{error ?? 'Plan not found.'}</p>
+          <Button variant="secondary" onClick={() => router.push('/builder')} id="plan-back">
+            Back to Builder
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const planData = {
+    id: plan.id,
+    title: plan.title,
+    status: plan.status,
+    brief: plan.brief,
+    campaigns: plan.plan_data?.campaigns ?? [],
+    createdAt: plan.created_at,
+  };
+
   return (
     <PlanView
-      plan={plan}
+      plan={planData}
       onApprove={(nodeId, nodeType) => {
-        /* Mark node as approved in DB */
+        console.log('Approve', nodeId, nodeType);
       }}
       onRegenerate={(nodeId, nodeType, guidance) => {
-        /* Regenerate specific node via AI */
+        console.log('Regenerate', nodeId, nodeType, guidance);
       }}
       onRegenerateAll={() => {
-        /* Regenerate entire plan */
+        console.log('Regenerate all');
       }}
       onExportPdf={() => {
-        /* Trigger PDF generation edge function */
+        console.log('Export PDF');
       }}
     />
   );

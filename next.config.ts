@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' blob: data: https:",
             "font-src 'self' https://fonts.gstatic.com",
-            "connect-src 'self' https://*.insforge.com https://graph.facebook.com",
+            "connect-src 'self' https://*.insforge.app https://graph.facebook.com",
             "frame-ancestors 'none'",
             "base-uri 'self'",
             "form-action 'self'",
@@ -50,7 +50,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "*.insforge.com",
+        hostname: "*.insforge.app",
       },
       {
         protocol: "https",

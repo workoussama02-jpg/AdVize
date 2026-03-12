@@ -2,13 +2,25 @@
  * InsForge client configuration and SDK wrapper.
  * Provides access to InsForge services: Auth, Database, Storage, AI Gateway, and Realtime.
  *
+ * Uses the official @insforge/sdk for auth (PKCE OAuth) and custom fetch for DB/Storage/AI.
+ *
  * @module insforge
  */
+
+import { createClient } from '@insforge/sdk';
 
 /** InsForge configuration loaded from environment variables */
 const INSFORGE_URL = process.env.NEXT_PUBLIC_INSFORGE_URL ?? '';
 const INSFORGE_ANON_KEY = process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY ?? '';
-const INSFORGE_SERVICE_KEY = process.env.INSFORGE_SERVICE_KEY ?? '';
+
+/**
+ * InsForge SDK client singleton — browser-only (uses PKCE sessionStorage, localStorage).
+ * On the server this is null; auth actions are client-only.
+ */
+const _sdk =
+  typeof window !== 'undefined'
+    ? createClient({ baseUrl: INSFORGE_URL, anonKey: INSFORGE_ANON_KEY })
+    : null;
 
 /** Type definition for InsForge database query result */
 interface QueryResult<T> {
@@ -42,91 +54,114 @@ interface UploadResult {
 }
 
 /**
- * InsForge Auth module — handles Facebook OAuth and session management.
+ * InsForge Auth module — email/password authentication for internal use.
+ * No OAuth flow needed — this app is single-user / internal only.
  */
 export const auth = {
   /**
-   * Initiates Facebook OAuth login flow.
-   * Redirects the user to Facebook for authentication.
+   * Signs in with email and password.
    */
-  async signInWithFacebook(redirectTo: string): Promise<{ url: string; error: InsForgeError | null }> {
-    const params = new URLSearchParams({
-      provider: 'facebook',
-      redirect_to: redirectTo,
-      scopes: 'ads_read,pages_show_list,email,public_profile',
-    });
+  async signIn(
+    email: string,
+    password: string,
+  ): Promise<{ session: Session | null; error: InsForgeError | null }> {
+    if (!_sdk) return { session: null, error: { message: 'Auth SDK not available', code: 'SDK_ERROR' } };
 
-    const response = await fetch(`${INSFORGE_URL}/auth/v1/authorize?${params.toString()}`, {
-      headers: {
-        'apikey': INSFORGE_ANON_KEY,
-      },
-    });
+    const { data, error } = await _sdk.auth.signInWithPassword({ email, password });
 
-    if (!response.ok) {
-      return { url: '', error: { message: 'Failed to initiate login', code: 'AUTH_ERROR' } };
+    if (error || !data) {
+      return {
+        session: null,
+        error: { message: error?.message ?? 'Sign in failed', code: 'AUTH_ERROR' },
+      };
     }
 
-    const data: { url: string } = await response.json();
-    return { url: data.url, error: null };
+    return {
+      session: {
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          user_metadata: (data.user.profile as Record<string, string>) ?? {},
+        },
+        access_token: data.accessToken,
+        refresh_token: '',
+        expires_at: 0,
+      },
+      error: null,
+    };
   },
 
   /**
-   * Exchanges the OAuth callback code for a session.
+   * Exchanges the InsForge OAuth callback code (insforge_code) for a session.
+   * Kept for potential future use; not used in the current internal flow.
    */
-  async exchangeCodeForSession(code: string): Promise<{ session: Session | null; error: InsForgeError | null }> {
-    const response = await fetch(`${INSFORGE_URL}/auth/v1/token?grant_type=authorization_code`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': INSFORGE_ANON_KEY,
-      },
-      body: JSON.stringify({ code }),
-    });
+  async exchangeOAuthCode(
+    code: string,
+  ): Promise<{ session: Session | null; error: InsForgeError | null }> {
+    if (!_sdk)
+      return { session: null, error: { message: 'Auth SDK not available', code: 'SDK_ERROR' } };
 
-    if (!response.ok) {
-      return { session: null, error: { message: 'Failed to exchange code for session', code: 'AUTH_ERROR' } };
+    const { data, error } = await _sdk.auth.exchangeOAuthCode(code);
+
+    if (error || !data) {
+      return {
+        session: null,
+        error: { message: error?.message ?? 'OAuth code exchange failed', code: 'AUTH_ERROR' },
+      };
     }
 
-    const session: Session = await response.json();
-    return { session, error: null };
+    return {
+      session: {
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          user_metadata: (data.user.profile as Record<string, string>) ?? {},
+        },
+        access_token: data.accessToken,
+        refresh_token: '',
+        expires_at: 0,
+      },
+      error: null,
+    };
   },
 
   /**
-   * Retrieves the current user session from cookies.
+   * Retrieves the current user session, refreshing if necessary.
    */
   async getSession(): Promise<{ session: Session | null; error: InsForgeError | null }> {
-    const response = await fetch(`${INSFORGE_URL}/auth/v1/session`, {
-      headers: {
-        'apikey': INSFORGE_ANON_KEY,
-      },
-      credentials: 'include',
-    });
+    if (!_sdk) return { session: null, error: null };
 
-    if (!response.ok) {
-      return { session: null, error: null };
+    const { data, error } = await _sdk.auth.getCurrentSession();
+
+    if (error || !data?.session) {
+      return {
+        session: null,
+        error: error ? { message: error.message, code: 'AUTH_ERROR' } : null,
+      };
     }
 
-    const session: Session = await response.json();
-    return { session, error: null };
+    return {
+      session: {
+        user: {
+          id: data.session.user.id,
+          email: data.session.user.email,
+          user_metadata: (data.session.user.profile as Record<string, string>) ?? {},
+        },
+        access_token: data.session.accessToken,
+        refresh_token: '',
+        expires_at: data.session.expiresAt?.getTime() ?? 0,
+      },
+      error: null,
+    };
   },
 
   /**
    * Signs the user out and clears the session.
    */
   async signOut(): Promise<{ error: InsForgeError | null }> {
-    const response = await fetch(`${INSFORGE_URL}/auth/v1/logout`, {
-      method: 'POST',
-      headers: {
-        'apikey': INSFORGE_ANON_KEY,
-      },
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      return { error: { message: 'Failed to sign out', code: 'AUTH_ERROR' } };
-    }
-
-    return { error: null };
+    if (!_sdk) return { error: null };
+    const { error } = await _sdk.auth.signOut();
+    return { error: error ? { message: error.message, code: 'AUTH_ERROR' } : null };
   },
 
   /**
@@ -134,9 +169,7 @@ export const auth = {
    */
   async getUser(): Promise<{ user: Session['user'] | null; error: InsForgeError | null }> {
     const { session, error } = await auth.getSession();
-    if (error || !session) {
-      return { user: null, error };
-    }
+    if (error || !session) return { user: null, error };
     return { user: session.user, error: null };
   },
 };
@@ -152,6 +185,13 @@ export const db = {
     return new QueryBuilder<T>(table);
   },
 };
+
+/** Returns the current user's JWT or falls back to the anon key */
+async function getAuthToken(): Promise<string> {
+  if (!_sdk) return INSFORGE_ANON_KEY;
+  const { data } = await _sdk.auth.getCurrentSession();
+  return data?.session?.accessToken ?? INSFORGE_ANON_KEY;
+}
 
 /**
  * Query builder for InsForge database operations.
@@ -211,12 +251,12 @@ class QueryBuilder<T> {
       params.set('limit', String(this.limitCount));
     }
 
-    const response = await fetch(`${INSFORGE_URL}/rest/v1/${this.table}?${params.toString()}`, {
+    const token = await getAuthToken();
+    const response = await fetch(`${INSFORGE_URL}/api/database/records/${this.table}?${params.toString()}`, {
       headers: {
-        'apikey': INSFORGE_ANON_KEY,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      credentials: 'include',
     });
 
     if (!response.ok) {
@@ -236,19 +276,20 @@ class QueryBuilder<T> {
 
   /** Inserts a record */
   async insert(record: Partial<T>): Promise<QueryResult<T>> {
-    const response = await fetch(`${INSFORGE_URL}/rest/v1/${this.table}`, {
+    const token = await getAuthToken();
+    const response = await fetch(`${INSFORGE_URL}/api/database/records/${this.table}`, {
       method: 'POST',
       headers: {
-        'apikey': INSFORGE_ANON_KEY,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=representation',
       },
-      credentials: 'include',
-      body: JSON.stringify(record),
+      body: JSON.stringify([record]),
     });
 
     if (!response.ok) {
-      return { data: null, error: { message: 'Insert failed', code: 'DB_ERROR' } };
+      const errorData = await response.json().catch(() => ({}));
+      return { data: null, error: { message: (errorData as Record<string, string>).message ?? 'Insert failed', code: 'DB_ERROR' } };
     }
 
     const data: T[] = await response.json();
@@ -262,19 +303,20 @@ class QueryBuilder<T> {
       params.set(`${filter.column}`, `${filter.operator}.${filter.value}`);
     }
 
-    const response = await fetch(`${INSFORGE_URL}/rest/v1/${this.table}?${params.toString()}`, {
+    const token = await getAuthToken();
+    const response = await fetch(`${INSFORGE_URL}/api/database/records/${this.table}?${params.toString()}`, {
       method: 'PATCH',
       headers: {
-        'apikey': INSFORGE_ANON_KEY,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=representation',
       },
-      credentials: 'include',
       body: JSON.stringify(record),
     });
 
     if (!response.ok) {
-      return { data: null, error: { message: 'Update failed', code: 'DB_ERROR' } };
+      const errorData = await response.json().catch(() => ({}));
+      return { data: null, error: { message: (errorData as Record<string, string>).message ?? 'Update failed', code: 'DB_ERROR' } };
     }
 
     const data: T[] = await response.json();
@@ -288,12 +330,12 @@ class QueryBuilder<T> {
       params.set(`${filter.column}`, `${filter.operator}.${filter.value}`);
     }
 
-    const response = await fetch(`${INSFORGE_URL}/rest/v1/${this.table}?${params.toString()}`, {
+    const token = await getAuthToken();
+    const response = await fetch(`${INSFORGE_URL}/api/database/records/${this.table}?${params.toString()}`, {
       method: 'DELETE',
       headers: {
-        'apikey': INSFORGE_ANON_KEY,
+        'Authorization': `Bearer ${token}`,
       },
-      credentials: 'include',
     });
 
     if (!response.ok) {
@@ -362,38 +404,9 @@ export const storage = {
 };
 
 /**
- * InsForge AI Gateway module — LLM calls via OpenRouter.
+ * InsForge AI Gateway module — LLM calls via InsForge SDK.
  */
 export const ai = {
-  /**
-   * Sends a prompt to the AI model and returns a streaming response.
-   */
-  async stream(params: {
-    model: string;
-    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
-    temperature?: number;
-    max_tokens?: number;
-  }): Promise<ReadableStream<Uint8Array> | null> {
-    const response = await fetch(`${INSFORGE_URL}/ai/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'apikey': INSFORGE_ANON_KEY,
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        ...params,
-        stream: true,
-      }),
-    });
-
-    if (!response.ok || !response.body) {
-      return null;
-    }
-
-    return response.body;
-  },
-
   /**
    * Sends a prompt and returns the full response (non-streaming).
    */
@@ -403,52 +416,42 @@ export const ai = {
     temperature?: number;
     max_tokens?: number;
   }): Promise<{ content: string | null; error: InsForgeError | null }> {
-    const response = await fetch(`${INSFORGE_URL}/ai/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'apikey': INSFORGE_ANON_KEY,
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        ...params,
-        stream: false,
-      }),
-    });
+    if (!_sdk) return { content: null, error: { message: 'AI SDK not available', code: 'SDK_ERROR' } };
 
-    if (!response.ok) {
-      return { content: null, error: { message: 'AI call failed', code: 'AI_ERROR' } };
+    try {
+      const completion = await _sdk.ai.chat.completions.create({
+        model: params.model,
+        messages: params.messages,
+        temperature: params.temperature,
+        maxTokens: params.max_tokens,
+      });
+
+      const content = (completion as { choices: Array<{ message: { content: string } }> })
+        .choices[0]?.message?.content ?? null;
+      return { content, error: null };
+    } catch (err) {
+      return { content: null, error: { message: String(err), code: 'AI_ERROR' } };
     }
-
-    const data = await response.json() as { choices: Array<{ message: { content: string } }> };
-    return { content: data.choices[0]?.message?.content ?? null, error: null };
   },
 };
 
 /**
- * InsForge Edge Functions module — calls to serverless functions.
+ * InsForge Edge Functions module — calls to serverless functions via SDK.
  */
 export const functions = {
   /**
-   * Invokes an InsForge Edge Function.
+   * Invokes an InsForge Edge Function using the SDK (correct URL + auth headers).
    */
   async invoke<T>(functionName: string, body: Record<string, unknown> = {}): Promise<{ data: T | null; error: InsForgeError | null }> {
-    const response = await fetch(`${INSFORGE_URL}/functions/v1/${functionName}`, {
-      method: 'POST',
-      headers: {
-        'apikey': INSFORGE_ANON_KEY,
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify(body),
-    });
+    if (!_sdk) return { data: null, error: { message: 'SDK not available', code: 'SDK_ERROR' } };
 
-    if (!response.ok) {
-      return { data: null, error: { message: `Function ${functionName} failed`, code: 'FUNCTION_ERROR' } };
+    const { data, error } = await _sdk.functions.invoke(functionName, { body });
+
+    if (error) {
+      return { data: null, error: { message: error.message, code: 'FUNCTION_ERROR' } };
     }
 
-    const data: T = await response.json();
-    return { data, error: null };
+    return { data: data as T, error: null };
   },
 };
 

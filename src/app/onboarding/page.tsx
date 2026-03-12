@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Input';
 import { ProgressBar } from '@/components/shared/ProgressBar';
 import { businessProfileSchema, INDUSTRY_OPTIONS } from '@/lib/validators';
+import { db, auth } from '@/lib/insforge';
 
 /** Total number of onboarding steps */
 const TOTAL_STEPS = 6;
@@ -83,7 +84,35 @@ export default function OnboardingPage() {
       return;
     }
 
-    router.push('/dashboard');
+    try {
+      const { user, error: userError } = await auth.getUser();
+      if (userError || !user) {
+        setErrors({ general: 'Not authenticated. Please sign in again.' });
+        setIsSubmitting(false);
+        return;
+      }
+
+      const query = await db.from<Record<string, unknown>>('business_profiles');
+      const { error: dbError } = await query.insert({
+        user_id: user.id,
+        business_name: businessName,
+        industry,
+        daily_budget: dailyBudget,
+        website_url: websiteUrl || null,
+        scrape_consent: scrapeConsent,
+      });
+
+      if (dbError) {
+        setErrors({ general: dbError.message ?? 'Failed to save profile. Please try again.' });
+        setIsSubmitting(false);
+        return;
+      }
+
+      router.push('/dashboard');
+    } catch {
+      setErrors({ general: 'Failed to save profile. Please try again.' });
+      setIsSubmitting(false);
+    }
   };
 
   return (

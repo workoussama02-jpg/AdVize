@@ -1,5 +1,6 @@
 /**
- * OAuth callback handler — exchanges auth code for session.
+ * OAuth callback handler — exchanges the InsForge OAuth code for a session.
+ * InsForge uses PKCE and returns ?insforge_code= in the redirect URL.
  */
 'use client';
 
@@ -14,21 +15,41 @@ function CallbackHandler() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const code = searchParams.get('code');
-    if (!code) {
-      setError('No authorization code received. Please try logging in again.');
-      return;
-    }
-
     const handleCallback = async () => {
-      const { session, error: authError } = await auth.exchangeCodeForSession(code);
-
-      if (authError || !session) {
-        setError('Authentication failed. Please try again.');
+      // Check for error from InsForge / Facebook
+      const errorParam = searchParams.get('error') ?? searchParams.get('error_description');
+      if (errorParam) {
+        setError('Authentication was cancelled or failed. Please try again.');
         return;
       }
 
-      router.replace('/dashboard');
+      // InsForge PKCE flow: sends ?insforge_code= in the redirect URL
+      const code = searchParams.get('insforge_code');
+      if (code) {
+        const { session, error: exchangeErr } = await auth.exchangeOAuthCode(code);
+
+        if (exchangeErr || !session) {
+          setError('Authentication failed. Please try again.');
+          return;
+        }
+
+        // Sync the access token to a Next.js httpOnly cookie so the middleware
+        // can detect the session on subsequent requests.
+        try {
+          await fetch('/api/auth/session-set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accessToken: session.access_token }),
+          });
+        } catch {
+          // Non-fatal: middleware may redirect to login on next page load
+        }
+
+        router.replace('/dashboard');
+        return;
+      }
+
+      setError('No authorization code received. Please try logging in again.');
     };
 
     handleCallback();

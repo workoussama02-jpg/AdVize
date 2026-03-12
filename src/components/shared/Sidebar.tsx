@@ -6,6 +6,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -31,9 +32,15 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
 
   const handleClose = () => setIsOpen(false);
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/session-set', { method: 'DELETE' });
+    router.push('/login');
+  };
 
   return (
     <>
@@ -81,7 +88,7 @@ export function Sidebar() {
         </nav>
 
         <div className="sidebar-footer">
-          <button className="sidebar-link" id="nav-logout" aria-label="Log out">
+          <button className="sidebar-link" id="nav-logout" aria-label="Log out" onClick={handleLogout}>
             <LogOut size={20} aria-hidden="true" />
             Log out
           </button>

@@ -1,15 +1,19 @@
 /**
- * App layout — wraps all authenticated pages with sidebar navigation.
+ * App layout — wraps all authenticated pages with sidebar navigation
+ * and BusinessProfileProvider for multi-brand profile context.
  */
 import { Sidebar } from '@/components/shared/Sidebar';
+import { BusinessProfileProvider } from '@/context/BusinessProfileContext';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="app-layout">
-      <Sidebar />
-      <main className="main-content">
-        {children}
-      </main>
-    </div>
+    <BusinessProfileProvider>
+      <div className="app-layout">
+        <Sidebar />
+        <main className="main-content">
+          {children}
+        </main>
+      </div>
+    </BusinessProfileProvider>
   );
 }

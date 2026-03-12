@@ -7,16 +7,22 @@
 
 import { z } from 'zod';
 
-/** Preset industry categories for onboarding */
+/** Preset industry categories for onboarding & settings */
 export const INDUSTRY_OPTIONS = [
   'E-commerce',
-  'Local Services',
-  'SaaS/Software',
+  'Fashion & Apparel',
+  'Home & Living',
+  'Gifts & Personalization',
+  'Beauty & Personal Care',
   'Health & Wellness',
   'Food & Beverage',
+  'Electronics',
+  'Sports & Outdoors',
+  'Kids & Baby',
+  'Local Services',
+  'SaaS/Software',
   'Education',
   'Real Estate',
-  'Fashion & Beauty',
   'Travel & Hospitality',
   'Finance',
   'Entertainment',

@@ -66,12 +66,13 @@ export default function AnalyzerPage() {
         </div>
         <EmptyState
           icon={BarChart3}
-          title="Connect Meta and analyze your first campaign"
-          description="Connect your Meta ad account in Settings to pull campaign data for AI-powered analysis."
+          title="No campaigns found"
+          description="No active or paused campaigns were found in your Meta ad account. Create a campaign in Meta Ads Manager first."
           action={
-            <Link href="/settings" className="btn btn-primary" id="analyzer-connect">
-              Go to Settings
-            </Link>
+            <Button variant="secondary" onClick={() => loadCampaigns()} id="analyzer-refresh-empty">
+              <RefreshCw size={16} aria-hidden="true" />
+              Refresh
+            </Button>
           }
         />
       </div>

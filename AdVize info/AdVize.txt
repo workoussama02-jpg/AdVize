@@ -1,0 +1,36 @@
+Full App Plan Summary
+
+App Name: AdVize
+Target Users: Small business owners/individual entrepreneurs (beginners to amateurs) who know basic Meta campaign creation but struggle with optimization details.
+Core Value: AI-powered suggestions for Meta ads (strategy, copy, media, etc.) that users review/confirm, then manually implement. Deep analysis of active campaigns with recommendations.
+
+Key Features:
+
+-Onboarding: Collect business details(industry, daily ad budget), website URL, add a "Connect Meta Account" button that initiates Meta's OAuth flow (secure login via Facebook). 
+
+-Campaign Builder: AI generates complete plans (multiple campaigns/adsets/ads with objectives, strategies(retargeting/lookalike/warming/funnel etc...),events, audiences, placements ,Ad copy variations(generates multiple varriations(Primary text, Headline, Description)and suggest the best one),Format, what media(s) from the gallery). Users review, improve, or recreate; export PDF guide for manual setup.
+
+Campaign Analyzer: User choose the campaign via a list, the App Pulls campaign's data via API; AI analyzes metrics/creatives/media, provides recommendations (e.g., "Change headline for 20% CTR boost"). Users apply manually.
+
+AI Engine: Single unified LLM (user-selectable: OpenAI, Claude, Gemini, etc..) for all tasks, trained on marketing psychology and paid-ads best practices.
+
+Integrations: User choose between using OAuth or website scraping for product data; InsForge backend for database, storage, auth, functions, realtime, AI routing.
+
+Technical Stack:
+
+Frontend: Next.js (web app, scalable to mobile).
+Backend: InsForge (Postgres DB, cloud storage, OAuth auth, serverless functions for AI/data processing, real-time updates, AI integration).
+APIs: Meta Ads (read-only), website scraping (ethical, with consent).
+Security: Encrypted data, GDPR-compliant, no write access to Meta.
+
+User Flow Highlights:
+
+Input basics → AI thinks deeply → Review suggestions → Confirm or improve → Export guide → Manual implementation.
+For analysis: Select campaign → AI pulls/analyzes data → View recommendations → Manual changes.
+
+Unique Differentiators:
+
+No automation—users stay in control, building expertise.
+Psychology-backed suggestions (e.g., Hick's Law for simplicity, loss aversion for urgency).
+Website-aware AI for personalized, high-ROI recommendations.
+Beginner-friendly with educational elements.

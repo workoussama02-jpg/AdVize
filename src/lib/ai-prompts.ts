@@ -7,8 +7,8 @@
 
 /** AI model identifiers per task */
 export const AI_MODELS = {
-  STRATEGY: 'xAI/Grok-4.1-Fast',
-  COPY: 'xAI/Grok-4.1-Fast',
+  STRATEGY: 'x-ai/grok-4.1-fast',
+  COPY: 'x-ai/grok-4.1-fast',
   ANALYSIS: 'google/gemini-2.5-flash',
   EXTRACTION: 'google/gemini-2.5-flash',
 } as const;

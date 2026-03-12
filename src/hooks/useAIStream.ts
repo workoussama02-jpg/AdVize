@@ -88,14 +88,20 @@ export function useAIStream(): UseAIStreamReturn {
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') continue;
+              const data = line.slice(6).trim();
+              if (!data || data === '[DONE]') continue;
 
               try {
                 const parsed = JSON.parse(data) as {
-                  choices: Array<{ delta: { content?: string } }>;
+                  chunk?: string;
+                  done?: boolean;
+                  // fallback: OpenAI-compatible shape
+                  choices?: Array<{ delta: { content?: string } }>;
                 };
-                const delta = parsed.choices[0]?.delta?.content;
+                if (parsed.done) continue;
+                const delta =
+                  parsed.chunk ??
+                  parsed.choices?.[0]?.delta?.content;
                 if (delta) {
                   fullContent += delta;
                   setContent(fullContent);

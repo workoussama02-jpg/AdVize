@@ -1,0 +1,412 @@
+# Complete Product Specification — Chat Widget Builder SaaS
+
+## 1. Project Overview
+
+This document describes a web application that allows users to create and customize a chat widget for their website. The user signs up, logs in, accesses a dashboard, creates a widget, customizes it visually through a form with a live preview, and at the end downloads a ZIP file containing two ready-to-use files: a customized `chat-widget.js` file and an `html-widget.html` file. The user then hosts those files themselves (e.g. on Vercel) and pastes the HTML snippet into their website. The app does not host anything for the user after the download — it is purely a configuration and file generation tool.
+
+The product is inspired by n8nchatui.com, which offers the same concept. The widget engine being used is based on an open-source project published on GitHub. Before building, verify that the license of the original repository (https://github.com/juansebsol/n8n-chatbot-template) permits commercial use.
+
+---
+
+## 2. Tech Stack
+
+**Frontend (the web app interface):** React with Next.js. This is the framework that will be used to build every page — the landing page, the auth pages, the dashboard, and the customizer. Next.js is chosen because it supports both frontend rendering and lightweight backend API routes within the same project, which is needed for the file generation feature.
+
+**Backend-as-a-Service (BaaS):** Insforge (https://insforge.dev/). Insforge handles user authentication (sign up, log in, password reset, session management) and the database where user data and widget configurations are stored. The developer must read Insforge's documentation carefully to understand how to integrate their auth and database SDKs into a Next.js project.
+
+**File generation:** Done server-side inside a Next.js API route. When the user clicks download, the server reads the master template files, performs string replacements with the user's configuration values, packages both output files into a ZIP archive, and sends the ZIP to the browser for download.
+
+**Styling:** Tailwind CSS for the app's own UI. This is separate from the widget's CSS — the app's appearance is built with Tailwind, while the widget's appearance is defined by the user's configuration choices.
+
+**Hosting for the app itself:** Vercel. The Next.js app will be deployed to Vercel. This does not mean the user's widget files are hosted on Vercel — it means the app itself runs there.
+
+---
+
+## 3. The Two Output Files — What They Are and How They Work
+
+Understanding these two files is the most important technical foundation of the entire product.
+
+### 3a. chat-widget.js
+
+This is a self-contained JavaScript file, approximately 503 lines long, that creates and injects a floating chat widget into any webpage it is loaded on. It is written as an IIFE (Immediately Invoked Function Expression), meaning it runs automatically as soon as it is loaded by a browser. It has zero external JavaScript dependencies — it does not require jQuery, React, or any other library.
+
+Internally, the file does the following things in order:
+
+- It defines a large CSS string containing all the styles for every visual element of the widget (the toggle button, the chat container, the header, message bubbles, input area, footer, etc.)
+- It loads the Geist Sans font from a CDN (jsdelivr) by dynamically creating a `<link>` element and appending it to the page's `<head>`
+- It injects the CSS string into the page by creating a `<style>` element and appending it to the page's `<head>`
+- It defines a `defaultConfig` object containing fallback values for all configuration fields
+- It reads `window.ChatWidgetConfig` — a global JavaScript object that must be defined on the page before this script loads — and merges it with the default config
+- It checks if `window.N8NChatWidgetInitialized` is already `true` and exits immediately if so, to prevent the widget from loading twice on the same page
+- It creates all the DOM elements for the widget dynamically using JavaScript (no HTML file is needed for the widget itself)
+- It applies the color values from the config by setting CSS custom properties (CSS variables) on the widget's root container element: `--n8n-chat-primary-color`, `--n8n-chat-secondary-color`, `--n8n-chat-background-color`, and `--n8n-chat-font-color`
+- It attaches all event listeners for user interaction (clicking the toggle button, clicking "Send us a message", typing and sending messages, clicking the close button)
+- It manages a session ID using `crypto.randomUUID()` which generates a unique identifier each time a new conversation is started
+- It communicates with an external webhook URL via `fetch()` POST requests using two different actions: `loadPreviousSession` (fired when the user starts a new conversation) and `sendMessage` (fired every time the user sends a message)
+
+The widget has two visual states: a "welcome screen" shown first (displaying the logo, company name, welcome text, response time text, and a "Send us a message" button), and a "chat interface" shown after the user clicks that button (displaying the message history, a textarea, and a Send button).
+
+The toggle button (the floating round button fixed to the bottom corner of the screen) opens and closes the chat container by toggling an `open` CSS class.
+
+**The colors in the CSS use hardcoded RGBA values in some places.** Specifically, these lines in the CSS use hardcoded purple-tinted values that do not respond to the CSS variables:
+- `box-shadow: 0 8px 32px rgba(133, 79, 255, 0.15)` on the chat container
+- `border: 1px solid rgba(133, 79, 255, 0.2)` on the chat container
+- `border-bottom: 1px solid rgba(133, 79, 255, 0.1)` on the brand header
+- `box-shadow: 0 4px 12px rgba(133, 79, 255, 0.2)` on user message bubbles
+- `border: 1px solid rgba(133, 79, 255, 0.2)` on bot message bubbles
+- `box-shadow: 0 4px 12px rgba(133, 79, 255, 0.3)` on the toggle button
+- `border-top: 1px solid rgba(133, 79, 255, 0.1)` on the chat input area
+- `border: 1px solid rgba(133, 79, 255, 0.2)` on the textarea
+
+These hardcoded values mean that even if a user picks a completely different primary color, the borders and shadows will still have a purple tint. When generating the customized `chat-widget.js` for the user, the app must replace these hardcoded `rgba(133, 79, 255, ...)` values with dynamically computed RGBA values derived from the user's chosen primary color. This requires converting the user's hex primary color to its RGB components and inserting them into the RGBA strings at the same opacity levels (0.15, 0.2, 0.1, 0.2, 0.2, 0.3, 0.1, 0.2 respectively as listed above).
+
+### 3b. html-widget.html (or the embed snippet)
+
+This is a small HTML file — really just a snippet — that the user pastes into their own website. It contains two `<script>` tags:
+
+The first `<script>` tag defines `window.ChatWidgetConfig`, a global JavaScript configuration object. This object has three nested objects: `webhook`, `branding`, and `style`. Every value inside this object is populated with the user's choices from the customizer.
+
+The second `<script>` tag has a `src` attribute pointing to the user's self-hosted `chat-widget.js` file. At the time of file generation, this `src` value will be a placeholder (for example: `YOUR_CHAT_WIDGET_JS_URL_HERE`) because the app cannot know where the user will upload the JS file. The instructions and tutorial videos will tell the user to replace this placeholder with the actual URL after they upload the JS file to Vercel or any static host.
+
+The full structure of `window.ChatWidgetConfig` is:
+
+```
+webhook:
+  url: (string) — the full URL of the user's n8n webhook endpoint
+  route: (string) — a route identifier, usually "general" or any label the user sets
+
+branding:
+  logo: (string) — a URL pointing to the user's logo image
+  name: (string) — the company or bot name shown in the widget header
+  welcomeText: (string) — the large greeting text shown on the welcome screen
+  responseTimeText: (string) — the smaller text below the "Send us a message" button
+  poweredBy:
+    text: (string) — the text shown in the footer of the widget
+    link: (string) — the URL the footer text links to
+
+style:
+  primaryColor: (string, hex) — the main brand color, used for the gradient on buttons, user message bubbles, and the toggle button
+  secondaryColor: (string, hex) — the second color of the gradient, should be a darker shade of primary
+  position: (string) — either "left" or "right", controls which corner the widget appears in
+  backgroundColor: (string, hex) — the background color of the chat container and message area
+  fontColor: (string, hex) — the color of all text in the widget
+```
+
+---
+
+## 4. Application Pages and Features
+
+### 4a. Landing Page
+
+The landing page is a public marketing page, accessible at the root URL `/`. It is not behind any authentication. Its purpose is to explain the product, build trust, and convert visitors into signups.
+
+The landing page must include the following sections:
+
+**Hero section:** A headline, a short description of what the product does (something like "Build and customize your AI chat widget in minutes — download the files and embed it anywhere"), and a prominent call-to-action button that links to the signup page.
+
+**How it works section:** A simple 3-step visual explanation. Step 1: Create an account and log in. Step 2: Customize your widget using the visual editor — pick colors, add your logo, enter your text, connect your n8n webhook. Step 3: Download your files, upload the JS to Vercel, paste the HTML into your site. Done.
+
+**Features section:** A list of key features such as: live preview as you customize, download-ready files, self-hosted (you own your files), works with any n8n webhook or AI agent, no monthly fees for hosting, easy setup with video tutorials.
+
+**Pricing section:** (Described in detail in Section 7 of this document.)
+
+**Footer:** Links to the signup page, login page, and any relevant legal pages (terms of service, privacy policy) if needed.
+
+The landing page should look modern, clean, and professional. It should not look like a template — it needs to feel like a real product. Use a dark or neutral background with accent colors. The live preview of the widget (a screenshot or animated mockup) should be visible on the hero section to immediately communicate what the product is.
+
+### 4b. Authentication Pages
+
+These pages are handled primarily by Insforge's auth system. The developer must integrate Insforge's authentication SDK to manage sessions and user state throughout the app.
+
+**Signup page (`/signup`):** A form with fields for email and password, and a "Create account" button. After successful signup, redirect the user to the dashboard. Include a link to the login page for users who already have an account.
+
+**Login page (`/login`):** A form with email and password fields and a "Log in" button. After successful login, redirect to the dashboard. Include a link to the signup page for new users.
+
+**Password reset:** A "Forgot password?" link on the login page that triggers Insforge's password reset flow. This sends the user an email with a reset link.
+
+All auth pages should be simple, centered, and visually consistent with the rest of the app.
+
+### 4c. Dashboard Page (`/dashboard`)
+
+The dashboard is the main logged-in area. It is protected — if a user tries to access `/dashboard` without being logged in, they are redirected to `/login`.
+
+The dashboard shows the user all the widgets they have created. Each widget is shown as a card. Each card displays: the widget's name (a label the user gave it, e.g. "Support Bot" or "Main Website Widget"), the date it was created, and three action buttons: Edit, Download, and Delete.
+
+**Edit** takes the user back into the customizer for that widget with all their saved settings pre-filled.
+
+**Download** immediately triggers the file generation and ZIP download for that widget without requiring the user to go back into the customizer.
+
+**Delete** shows a confirmation dialog ("Are you sure you want to delete this widget? This action cannot be undone.") and then deletes the widget from the database if confirmed.
+
+At the top of the dashboard there is a prominent "Create New Widget" button. Clicking it takes the user to a fresh, empty customizer.
+
+If the user has no widgets yet, the dashboard shows an empty state message with an illustration or icon, a short message like "You haven't created any widgets yet", and the "Create New Widget" button.
+
+The dashboard also has a navigation bar at the top with: the app logo/name on the left, and on the right a user menu (showing the user's email address) with a "Log out" option.
+
+### 4d. Widget Customizer Page (`/dashboard/new` and `/dashboard/edit/[id]`)
+
+This is the most important and most complex page of the entire application. It has two modes:
+
+**Create mode** (`/dashboard/new`): All fields start empty or with sensible placeholder defaults (e.g. primary color pre-filled to `#854fff`, secondary color to `#6b3fd4`, background to `#ffffff`, font color to `#333333`, position to "right").
+
+**Edit mode** (`/dashboard/edit/[id]`): The page loads the saved configuration for that widget ID from the database and pre-fills all fields with the saved values.
+
+Both modes share the exact same UI and behavior — the only difference is where the initial data comes from.
+
+**Page layout:** The customizer page is split into two columns side by side. The left column (roughly 40% of the page width) contains the form with all the configuration fields. The right column (roughly 60% of the page width) shows the live preview of the widget. On mobile, these stack vertically with the preview below the form.
+
+#### Left Column — Configuration Form
+
+The form is organized into four sections, each clearly labeled with a section heading:
+
+**Section 1 — Widget Settings (basic metadata)**
+
+- Widget Name: A text input. This is NOT part of the exported widget config — it is just a label for the user's own reference inside the dashboard (e.g. "Customer Support Widget" or "Homepage Bot"). Required field.
+
+**Section 2 — Webhook**
+
+- Webhook URL: A text input where the user pastes the full URL of their n8n webhook (e.g. `https://n8n.yourdomain.com/webhook/abc123/chat`). This value maps to `config.webhook.url` in the output files. Required field.
+- Route: A text input for the route identifier. Defaults to `general`. Maps to `config.webhook.route`. Optional — if the user leaves it blank, it defaults to `general`.
+
+**Section 3 — Branding**
+
+- Logo URL: A text input where the user pastes a URL to their logo image. This maps to `config.branding.logo`. The preview should display the image live as the user types a valid URL. Note: the app does not handle logo file uploads — the user must host their logo somewhere (e.g. upload it to Imgur, their own website, or any public image host) and paste the URL. This limitation should be clearly stated in the UI with a small helper text.
+- Company / Bot Name: A text input. Maps to `config.branding.name`. Shown in the widget header next to the logo. Required field.
+- Welcome Text: A text input. Maps to `config.branding.welcomeText`. This is the large greeting shown on the welcome screen (e.g. "Hi 👋, how can we help?"). Required field.
+- Response Time Text: A text input. Maps to `config.branding.responseTimeText`. Shown below the "Send us a message" button on the welcome screen (e.g. "We typically respond right away"). Optional.
+- Powered By Text: A text input. Maps to `config.branding.poweredBy.text`. Shown as a small link in the footer of the widget. Defaults to a placeholder like "Powered by ChatWidget" but the user can change it to their own brand name or leave it as the app's branding.
+- Powered By Link: A text input. Maps to `config.branding.poweredBy.link`. The URL that the "Powered By" footer text links to. Defaults to the app's own URL but can be changed.
+
+**Section 4 — Style**
+
+- Primary Color: A color picker input (an HTML color input `<input type="color">` combined with a text field showing the hex value). Maps to `config.style.primaryColor`. This color is used for the gradient on: the "Send us a message" button, user message bubbles, and the floating toggle button.
+- Secondary Color: A color picker input. Maps to `config.style.secondaryColor`. This is the second stop of the gradient applied alongside the primary color. Should visually be a darker or lighter variant of the primary color, but the user can pick anything.
+- Background Color: A color picker input. Maps to `config.style.backgroundColor`. The background of the entire chat container, the message area, and the input area.
+- Font Color: A color picker input. Maps to `config.style.fontColor`. The color of all text inside the widget: the company name in the header, the welcome text, the response time text, bot message text, and placeholder text in the textarea.
+- Widget Position: A toggle or radio button selector with two options: "Right" and "Left". Maps to `config.style.position`. Controls whether the widget appears in the bottom-right or bottom-left corner of the screen.
+
+**Form behavior:** Every time the user changes any value in the form, the live preview in the right column updates immediately. There should be no "refresh preview" button — it must be real-time/reactive.
+
+**Save button:** A button labeled "Save Widget" at the bottom of the form. Clicking it saves the current configuration to the Insforge database associated with the logged-in user's account. On success, show a brief success notification ("Widget saved!"). If this is a new widget (create mode), saving it should redirect the user to the edit URL for that newly created widget (so that subsequent saves update the same record rather than creating duplicates).
+
+**Download button:** A button labeled "Download Files" at the bottom of the form, next to the Save button. Clicking it first saves the current configuration (same as clicking Save), then immediately triggers the file download. See Section 5 for the full download and file generation logic.
+
+#### Right Column — Live Preview
+
+The right column shows a realistic, interactive preview of how the widget will look with the user's current settings. The preview is rendered as an actual instance of the widget inside an iframe or a sandboxed div, so the user can see real colors, real fonts, real text, and even interact with it slightly (open/close the toggle). However, the preview does NOT make real webhook calls — it simulates the widget's appearance only.
+
+The preview must update in real time as the user changes any form field. Specifically:
+- Changing primary color updates the gradient on the toggle button and buttons inside the widget
+- Changing secondary color updates the gradient as well
+- Changing background color updates the container background
+- Changing font color updates all visible text
+- Changing logo URL updates the logo image shown in the header (if the URL is a valid image)
+- Changing company name updates the text in the header
+- Changing welcome text updates the large greeting
+- Changing response time text updates the smaller subtext
+- Changing position (left/right) moves the preview widget accordingly
+- Changing powered by text updates the footer link text
+
+The preview should be shown inside a device mockup (a simplified browser window frame or a phone-like container) to make it feel realistic and polished.
+
+---
+
+## 5. File Generation and Download Logic
+
+When the user clicks "Download Files", the following sequence of events must occur:
+
+**Step 1 — Save:** The current form values are sent to the Insforge database. This ensures the user always downloads a file that matches what is saved.
+
+**Step 2 — API call to file generation endpoint:** The frontend sends a POST request to a Next.js API route (e.g. `/api/generate-widget`). The request body contains the full configuration object with all the user's values.
+
+**Step 3 — Server reads the master template:** The server reads the original `chat-widget.js` file from a location within the project (it should be stored in the project repository, e.g. at `templates/chat-widget.js`). This master file is the exact original widget file — it is never modified in the repository. It is only modified in memory during generation.
+
+**Step 4 — Server performs string replacements on the JS file:** The server modifies the in-memory copy of `chat-widget.js` with the following replacements:
+
+- The default `primaryColor` value (`''` empty string in the defaultConfig) is replaced with the user's primary color hex value. However, this only affects the fallback — the real colors come from `window.ChatWidgetConfig`. Actually, the important replacements are in the CSS:
+
+The hardcoded RGBA values that use the original purple `rgba(133, 79, 255, ...)` must be replaced with dynamically computed values based on the user's primary color. The process is: take the user's `primaryColor` hex (e.g. `#3b82f6`), convert it to its RGB components (e.g. R=59, G=130, B=246), then replace every occurrence of `rgba(133, 79, 255, X)` in the CSS string with `rgba(59, 130, 246, X)` where X is the opacity value preserved from the original. There are 8 such occurrences in the CSS at opacities: 0.15, 0.2, 0.1, 0.2, 0.2, 0.3, 0.1, 0.2.
+
+- The `poweredBy` default values in the `defaultConfig` object inside the JS (the text `'Powered by Mad'` and the link `'https://n8n.partnerlinks.io/...'`) are replaced with the user's chosen powered-by text and link.
+
+**Step 5 — Server generates the HTML snippet file:** The server builds the content of the HTML file as a string. The structure is exactly:
+
+```
+<!-- Widget Configuration -->
+<script>
+    window.ChatWidgetConfig = {
+        webhook: {
+            url: '[USER_WEBHOOK_URL]',
+            route: '[USER_ROUTE]'
+        },
+        branding: {
+            logo: '[USER_LOGO_URL]',
+            name: '[USER_COMPANY_NAME]',
+            welcomeText: '[USER_WELCOME_TEXT]',
+            responseTimeText: '[USER_RESPONSE_TIME_TEXT]',
+            poweredBy: {
+                text: '[USER_POWERED_BY_TEXT]',
+                link: '[USER_POWERED_BY_LINK]'
+            }
+        },
+        style: {
+            primaryColor: '[USER_PRIMARY_COLOR]',
+            secondaryColor: '[USER_SECONDARY_COLOR]',
+            position: '[USER_POSITION]',
+            backgroundColor: '[USER_BACKGROUND_COLOR]',
+            fontColor: '[USER_FONT_COLOR]'
+        }
+    };
+</script>
+
+<!-- Widget Script -->
+<script src="YOUR_CHAT_WIDGET_JS_URL_HERE"></script>
+```
+
+Every placeholder in brackets is replaced with the user's actual values. The `src` attribute of the second script tag is left as the literal text `YOUR_CHAT_WIDGET_JS_URL_HERE` because the app cannot know where the user will host their JS file. The comments in the file (`<!-- Widget Configuration -->` and `<!-- Widget Script -->`) should be preserved as they help the user understand what each part does.
+
+**Step 6 — Server packages both files into a ZIP:** Using a ZIP library (e.g. `jszip` or `archiver` in Node.js), the server packages the modified JS content (as `chat-widget.js`) and the generated HTML content (as `embed.html`) into a single ZIP file.
+
+**Step 7 — Server sends the ZIP to the client:** The ZIP is sent as a binary response with the appropriate headers (`Content-Type: application/zip`, `Content-Disposition: attachment; filename="my-chat-widget.zip"`).
+
+**Step 8 — Browser downloads the ZIP:** The browser automatically prompts the user to save the file. The filename of the ZIP should be something like `chat-widget-[widget-name].zip` where `[widget-name]` is the slugified version of the user's widget name.
+
+---
+
+## 6. Database Schema (Insforge)
+
+One database table is needed:
+
+**Table: `widgets`**
+
+- `id`: unique identifier (UUID), auto-generated
+- `user_id`: foreign key linking to the authenticated user's account in Insforge's auth system
+- `name`: string — the user's internal label for this widget (e.g. "Support Bot")
+- `webhook_url`: string — the n8n webhook URL
+- `webhook_route`: string — the route value, defaults to "general"
+- `logo_url`: string — URL to the logo image
+- `company_name`: string — the name shown in the widget header
+- `welcome_text`: string — the greeting on the welcome screen
+- `response_time_text`: string — the subtext below the "Send us a message" button
+- `powered_by_text`: string — the footer link text
+- `powered_by_link`: string — the footer link URL
+- `primary_color`: string — hex color code for primary color
+- `secondary_color`: string — hex color code for secondary color
+- `background_color`: string — hex color code for background
+- `font_color`: string — hex color code for font/text
+- `position`: string — either "left" or "right"
+- `created_at`: timestamp — auto-generated when the record is created
+- `updated_at`: timestamp — auto-updated whenever the record is modified
+
+Each user can have multiple rows in this table (multiple widgets). When listing widgets on the dashboard, filter by `user_id` matching the logged-in user. All database operations (read, write, update, delete) must be scoped to the authenticated user — a user must never be able to read or modify another user's widgets.
+
+---
+
+## 7. Pricing and Plans
+
+The pricing model is simple and has two tiers:
+
+**Free tier:** The user can create up to 1 widget. The downloaded files will include the "Powered By [App Name]" branding in the widget footer that cannot be removed. This is enforced by locking the "Powered By" fields on the free plan — the user can see the fields but cannot edit them.
+
+**Pro tier (paid):** The user can create unlimited widgets. The "Powered By" branding in the footer can be fully customized or removed entirely (the user can blank out both the text and the link fields). Access to any additional features added in the future.
+
+The pricing section on the landing page should present both tiers side by side as pricing cards with a clear list of what's included in each. The Pro price should be determined by the product owner (not defined in this spec) and implemented via a payment provider. Payment integration (e.g. Stripe) is out of scope for the initial version — the free tier is the only functional tier at launch, with Pro marked as "Coming Soon" on the pricing cards.
+
+---
+
+## 8. User Experience Details and Edge Cases
+
+**Form validation:** Before saving or generating files, the form must validate that the required fields are filled in. Required fields are: Widget Name, Webhook URL, Company Name, and Welcome Text. If any required field is empty, show an inline error message under the relevant field and do not proceed with the save or download.
+
+**Color picker behavior:** Each color field should show both the native HTML color picker (a swatch the user can click to open a color selection UI) and a text input next to it showing the current hex value. The user can either use the picker or type a hex value manually. Both inputs must stay in sync — changing one updates the other.
+
+**Logo URL validation:** When the user types a URL into the Logo URL field, the preview should attempt to load it as an image. If the URL resolves to a valid image, display it in the preview. If it fails to load (broken URL, non-image URL), show a placeholder icon or a subtle error state in the preview without showing a broken image icon. Do not show an error message in the form — just gracefully fall back in the preview.
+
+**Position toggle visual:** The position toggle (left/right) should visually move the widget preview in the right column to reflect the selected position. If "left" is selected, the widget appears in the bottom-left of the preview area. If "right" is selected, it appears in the bottom-right.
+
+**Unsaved changes warning:** If the user has made changes to the form that have not been saved and they try to navigate away (e.g. click the back button to the dashboard or click to a different page), show a browser confirmation dialog warning them that unsaved changes will be lost.
+
+**Loading states:** All async operations (saving, downloading, loading edit data) must show a loading indicator. Buttons that trigger async actions should be disabled and show a spinner while the operation is in progress to prevent duplicate submissions.
+
+**Error handling:** If the save operation fails (e.g. network error, Insforge error), show a visible error notification to the user ("Something went wrong. Please try again."). Same for the download — if file generation fails, show an error. Never fail silently.
+
+**Session persistence:** The user should stay logged in across browser sessions (not be logged out every time they close the tab). Insforge handles this through its session management — the developer must configure it to use persistent sessions.
+
+**Responsive design:** The app must be usable on mobile devices. The customizer's two-column layout collapses to a single column on screens narrower than 768px, with the preview appearing below the form. The dashboard card grid should collapse to a single column on mobile. The landing page must be fully mobile-responsive.
+
+---
+
+## 9. Instructions Content (In-App)
+
+After the user downloads their ZIP, they need to know what to do next. The app should provide clear in-app instructions on the Download success screen or in a dedicated "How to deploy" section. The instructions are:
+
+**Step 1 — Upload chat-widget.js to Vercel:**
+- Go to vercel.com and create a free account if you don't have one
+- Create a new project and choose "Deploy from file upload" (or use the Vercel CLI)
+- Upload only the `chat-widget.js` file
+- After deployment, Vercel will give you a URL like `https://your-project.vercel.app/chat-widget.js`
+- Copy this URL
+
+**Step 2 — Update your HTML snippet:**
+- Open the `embed.html` file in any text editor
+- Find the line that says `YOUR_CHAT_WIDGET_JS_URL_HERE`
+- Replace it with the Vercel URL you just copied
+- Save the file
+
+**Step 3 — Add the snippet to your website:**
+- Open your website's HTML file(s) or your website builder's custom code section
+- Paste the entire contents of `embed.html` just before the closing `</body>` tag of every page where you want the widget to appear
+- Save and publish your website
+
+The widget should now appear on your website. A tutorial video link should also be provided here, pointing to a video walkthrough of these steps.
+
+---
+
+## 10. Project File Structure (For the Developer)
+
+The Next.js project should be organized as follows:
+
+```
+/app                          — Next.js app router pages
+  /page.tsx                   — Landing page
+  /login/page.tsx             — Login page
+  /signup/page.tsx            — Signup page
+  /dashboard/page.tsx         — Dashboard (widget list)
+  /dashboard/new/page.tsx     — Create new widget (customizer)
+  /dashboard/edit/[id]/page.tsx — Edit existing widget (customizer)
+/api
+  /generate-widget/route.ts   — API route for file generation and ZIP creation
+/components
+  /Navbar.tsx                 — Top navigation bar (used in dashboard pages)
+  /WidgetCard.tsx             — The card component shown for each widget on the dashboard
+  /Customizer/
+    /ColorPicker.tsx          — Reusable color picker component (swatch + hex input)
+    /FormSection.tsx          — Reusable section wrapper with heading
+    /PreviewPane.tsx          — The live preview component
+  /LandingPage/               — Components specific to the landing page sections
+/lib
+  /insforge.ts                — Insforge client initialization and helper functions
+  /widgetGenerator.ts         — Logic for string replacement and file generation
+  /colorUtils.ts              — Utility function to convert hex color to RGB components
+/templates
+  /chat-widget.js             — The master template JS file (never modified, read-only)
+/public                       — Static assets (images, icons, logo)
+```
+
+---
+
+## 11. Summary of What the App Does NOT Do
+
+To be clear about scope and avoid over-engineering:
+
+- The app does NOT host the widget JS file for users after download — that is the user's responsibility
+- The app does NOT handle logo file uploads — users must paste a URL to an externally hosted image
+- The app does NOT connect to n8n or any AI service itself — the webhook URL the user provides is passed directly into the config file; the AI logic lives entirely outside this app
+- The app does NOT provide chat history or analytics — once the files are downloaded and the user is using the widget on their own site, this app has no visibility into conversations
+- The app does NOT currently process payments — the Pro plan is marked "Coming Soon" at launch and all users operate on the free tier initially
+- The app does NOT support team accounts or multiple users sharing widgets — each account is individual
+
+---
+
+This document contains every detail needed to build the application from scratch. Any developer or AI coding assistant reading this should have a complete understanding of what needs to be built, why each decision was made, and exactly how the core file generation mechanism works at a technical level.

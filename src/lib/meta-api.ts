@@ -58,12 +58,17 @@ export async function fetchCampaigns(): Promise<{
   campaigns: MetaCampaign[];
   error: string | null;
 }> {
-  const { data, error } = await functions.invoke<{ campaigns: MetaCampaign[] }>(
+  const { data, error } = await functions.invoke<{ campaigns: MetaCampaign[]; error?: string }>(
     'meta-fetch-campaigns'
   );
 
   if (error) {
     return { campaigns: [], error: error.message };
+  }
+
+  // Edge function returned a body-level error (e.g. missing secret)
+  if (data && 'error' in data && data.error) {
+    return { campaigns: [], error: data.error };
   }
 
   return { campaigns: data?.campaigns ?? [], error: null };
